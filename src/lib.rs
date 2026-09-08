@@ -8,11 +8,11 @@ import sys
 def _json_escape_str(s):
     out = []
     for c in s:
-        if c == '"': out.append('\"')
-        elif c == '\\': out.append('\\\\')
-        elif c == '\n': out.append('\\n')
-        elif c == '\r': out.append('\\r')
-        elif c == '\t': out.append('\\t')
+        if c == '"': out.append(r'\"')
+        elif c == '\\': out.append(r'\\')
+        elif c == '\n': out.append(r'\n')
+        elif c == '\r': out.append(r'\r')
+        elif c == '\t': out.append(r'\t')
         elif ord(c) < 32: out.append(f"\\u{ord(c):04x}")
         else: out.append(c)
     return '"' + ''.join(out) + '"'
@@ -42,8 +42,13 @@ class _Tracer:
         self.truncated = False
         self.stdout_cap = _StdoutCapture()
 
-    def serialize_val(self, val, depth=0):
+    def serialize_val(self, val, depth=0, seen=None):
         try:
+            if seen is None:
+                seen = set()
+            val_id = id(val)
+            if val_id in seen:
+                return {"type": type(val).__name__, "repr": "<circular>"}
             t = type(val).__name__
             if depth > 2:
                 return {"type": t, "repr": repr(val)}
@@ -55,20 +60,22 @@ class _Tracer:
                 return {"type": t, "repr": str(val), "val": val}
             if isinstance(val, str):
                 return {"type": "str", "repr": repr(val), "val": val}
+            new_seen = seen | {val_id}
             if isinstance(val, (list, tuple)):
-                items = [self.serialize_val(x, depth + 1) for x in val[:50]]
+                items = [self.serialize_val(x, depth + 1, new_seen) for x in val[:50]]
                 return {"type": t, "repr": repr(val), "children": items, "len": len(val)}
             if isinstance(val, dict):
-                entries = {str(k): self.serialize_val(v, depth + 1) for k, v in list(val.items())[:50]}
+                entries = {str(k): self.serialize_val(v, depth + 1, new_seen) for k, v in list(val.items())[:50]}
                 return {"type": "dict", "repr": repr(val), "entries": entries, "len": len(val)}
             if isinstance(val, set):
-                items = [self.serialize_val(x, depth + 1) for x in list(val)[:50]]
+                items = [self.serialize_val(x, depth + 1, new_seen) for x in list(val)[:50]]
                 return {"type": "set", "repr": repr(val), "children": items, "len": len(val)}
             return {"type": t, "repr": repr(val)}
         except Exception as e:
             return {"type": "error", "repr": f"<unprintable: {e}>"}
 
     def trace(self, frame, event, arg):
+
         if frame.f_code.co_filename != "<user_code>":
             return self.trace
 
@@ -103,6 +110,7 @@ class _Tracer:
             ret_val = self.serialize_val(arg)
 
         exc_val = None
+
         if event == "exception":
             try:
                 exc_type, exc_value, _ = arg
@@ -134,7 +142,7 @@ _user_error = None
 _compiled_code = compile(USER_CODE_PLACEHOLDER, "<user_code>", "exec")
 sys.settrace(_tracer.trace)
 try:
-    exec(_compiled_code, {})
+    exec(_compiled_code, {"__name__": "__main__"})
 except Exception as _e:
     if not _tracer.truncated:
         _user_error = f"{type(_e).__name__}: {str(_e)}"
