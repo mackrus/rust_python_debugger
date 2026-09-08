@@ -1,6 +1,8 @@
 // Python Visual Debugger Client (Rust + WASM)
 
 const PRESETS = {
+  none: "",
+
   fibonacci: `# Recursive Fibonacci Demonstration
 def fib(n):
     if n <= 1:
@@ -118,7 +120,7 @@ class DebuggerApp {
     this.playInterval = null;
     this.expandedVars = new Set();
 
-    this.isVimEnabled = false;
+    this.isVimEnabled = true;
     this.vimMode = null;
     this.vimRegisterController = null;
     this.vimClipboardReg = null;
@@ -230,7 +232,7 @@ class DebuggerApp {
     require(["vs/editor/editor.main"], () => {
       const container = document.getElementById("monaco-editor-container");
       this.editor = monaco.editor.create(container, {
-        value: PRESETS.fibonacci,
+        value: PRESETS.none !== undefined ? PRESETS.none : "",
         language: "python",
         theme: "vs-dark",
         fontSize: 13,
@@ -259,8 +261,8 @@ class DebuggerApp {
         }
       });
 
-      // Preload Monaco Vim so registers and clipboard bridges are configured early
-      this.initMonacoVim();
+      // Enable Monaco Vim by default
+      this.enableVimMode();
     });
   }
 
@@ -412,18 +414,56 @@ class DebuggerApp {
         }
       };
     }
+
+    // 4. Wrap Vim paste action so p, P, "+p, "*p read the latest system clipboard
+    if (!Vim._pasteActionHooked && Vim._actions?.paste) {
+      Vim._pasteActionHooked = true;
+      const origPaste = Vim._actions.paste;
+      const self = this;
+      Vim.defineAction("paste", async function(cm, actionArgs, vimState) {
+        const reg = actionArgs?.registerName;
+        if (!reg || reg === "+" || reg === "*") {
+          try {
+            if (navigator.clipboard?.readText) {
+              const clip = await navigator.clipboard.readText();
+              if (typeof clip === "string" && clip.length > 0) {
+                self.updateVimClipboard(clip);
+              }
+            }
+          } catch {}
+        }
+        return origPaste(cm, actionArgs, vimState);
+      });
+    }
   }
 
   updateVimClipboard(text) {
     if (typeof text !== "string") return;
     const isLinewise = text.endsWith("\n");
-    if (this.vimClipboardReg) {
+    if (this.vimClipboardReg?.setText) {
+      this.vimClipboardReg.setText(text, isLinewise, false);
+    } else if (this.vimClipboardReg) {
       this.vimClipboardReg.keyBuffer = [text];
       this.vimClipboardReg.linewise = isLinewise;
     }
-    if (this.vimRegisterController?.unnamedRegister) {
-      this.vimRegisterController.unnamedRegister.keyBuffer = [text];
-      this.vimRegisterController.unnamedRegister.linewise = isLinewise;
+    if (this.vimRegisterController) {
+      if (this.vimRegisterController.unnamedRegister?.setText) {
+        this.vimRegisterController.unnamedRegister.setText(text, isLinewise, false);
+      } else if (this.vimRegisterController.unnamedRegister) {
+        this.vimRegisterController.unnamedRegister.keyBuffer = [text];
+        this.vimRegisterController.unnamedRegister.linewise = isLinewise;
+      }
+      if (this.vimRegisterController.registers) {
+        const regs = this.vimRegisterController.registers;
+        for (const name of ['"', "+", "*", "0"]) {
+          if (regs[name]?.setText) {
+            regs[name].setText(text, isLinewise, false);
+          } else if (regs[name]) {
+            regs[name].keyBuffer = [text];
+            regs[name].linewise = isLinewise;
+          }
+        }
+      }
     }
   }
 
@@ -474,9 +514,9 @@ class DebuggerApp {
       this.stdoutContent.innerHTML = `<span class="term-greeting">Console cleared.</span>`;
     });
 
-    // When window regains focus from another app (e.g. terminal Vim), sync if allowed
-    const syncIfAllowed = async () => {
-      if (this.clipboardReadAllowed && navigator.clipboard?.readText) {
+    // When window regains focus from another app (e.g. terminal Vim), sync latest clipboard
+    const syncClipboard = async () => {
+      if (navigator.clipboard?.readText) {
         try {
           const text = await navigator.clipboard.readText();
           if (typeof text === "string" && text.length > 0) {
@@ -485,9 +525,9 @@ class DebuggerApp {
         } catch {}
       }
     };
-    window.addEventListener("focus", syncIfAllowed);
+    window.addEventListener("focus", syncClipboard);
     document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) syncIfAllowed();
+      if (!document.hidden) syncClipboard();
     });
 
     // When a native browser paste happens (e.g. Ctrl+V), keep Vim registers updated
@@ -500,7 +540,7 @@ class DebuggerApp {
 
     this.presetSelect.addEventListener("change", (e) => {
       const code = PRESETS[e.target.value];
-      if (code && this.editor) {
+      if (code !== undefined && this.editor) {
         this.editor.setValue(code);
         this.resetPlayback();
       }
@@ -578,6 +618,10 @@ class DebuggerApp {
   runTrace() {
     if (!this.editor) return;
     const code = this.editor.getValue();
+    if (!code.trim()) {
+      this.setStatus("ready", "Ready (No code to run)");
+      return;
+    }
     const maxSteps = parseInt(this.stepLimit.value, 10) || 2500;
 
     this.stopPlay();
