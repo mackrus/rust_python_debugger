@@ -974,3 +974,11 @@ body {
 .hidden {
   display: none !important;
 }
+
+/* Suppress Monaco's floating post-paste widget popup */
+.post-edit-widget,
+.monaco-editor .post-edit-widget {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}

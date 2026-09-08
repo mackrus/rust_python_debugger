@@ -228,7 +228,15 @@ class DebuggerApp {
         glyphMargin: true,
         scrollBeyondLastLine: false,
         renderLineHighlight: "none",
-        tabSize: 4
+        tabSize: 4,
+        pasteAs: {
+          enabled: false,
+          showPasteSelector: "never"
+        },
+        dropIntoEditor: {
+          enabled: false,
+          showDropSelector: "never"
+        }
       });
 
       this.editor.onMouseDown((e) => {
