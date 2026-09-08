@@ -124,24 +124,11 @@ class DebuggerApp {
     this.vimMode = null;
     this.vimRegisterController = null;
     this.vimClipboardReg = null;
-    this.clipboardReadAllowed = false;
 
     this.initElements();
     this.initWorker();
     this.initMonaco();
-    this.checkClipboardPermission();
     this.bindEvents();
-  }
-
-  async checkClipboardPermission() {
-    if (typeof navigator?.permissions?.query !== "function") return;
-    try {
-      const status = await navigator.permissions.query({ name: "clipboard-read" });
-      this.clipboardReadAllowed = (status.state === "granted");
-      status.onchange = () => {
-        this.clipboardReadAllowed = (status.state === "granted");
-      };
-    } catch {}
   }
 
   initElements() {
@@ -492,22 +479,6 @@ class DebuggerApp {
     this.btnClearBps.addEventListener("click", () => this.clearBreakpoints());
     this.btnClearConsole.addEventListener("click", () => {
       this.stdoutContent.innerHTML = `<span class="term-greeting">Console cleared.</span>`;
-    });
-
-    // When window regains focus from another app (e.g. terminal Vim), sync latest clipboard
-    const syncClipboard = async () => {
-      if (this.clipboardReadAllowed && navigator.clipboard?.readText) {
-        try {
-          const text = await navigator.clipboard.readText();
-          if (typeof text === "string" && text.length > 0) {
-            this.updateVimClipboard(text);
-          }
-        } catch {}
-      }
-    };
-    window.addEventListener("focus", syncClipboard);
-    document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) syncClipboard();
     });
 
     // When a native browser paste happens (e.g. Ctrl+V), keep Vim registers updated
