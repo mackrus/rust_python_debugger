@@ -1,0 +1,17 @@
+{
+  "name": "rust_python_debugger",
+  "type": "module",
+  "description": "In-browser Python visual debugger powered by RustPython and WebAssembly",
+  "version": "0.1.0",
+  "license": "MIT",
+  "files": [
+    "rust_python_debugger_bg.wasm",
+    "rust_python_debugger.js",
+    "rust_python_debugger.d.ts"
+  ],
+  "main": "rust_python_debugger.js",
+  "types": "rust_python_debugger.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
