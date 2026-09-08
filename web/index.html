@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Python Visual Debugger (Rust + WASM)</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-root">
+    <!-- Top Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="brand-group">
+          <div class="brand-logo">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="16 18 22 12 16 6"></polyline>
+              <polyline points="8 6 2 12 8 18"></polyline>
+            </svg>
+          </div>
+          <div>
+            <div class="brand-title-row">
+              <h1 class="brand-title">Python Visual Debugger</h1>
+              <span class="badge-pill badge-wasm">Rust+WASM</span>
+            </div>
+            <p class="brand-subtitle">Client-side Python 3 stepping & time-travel replay</p>
+          </div>
+        </div>
+
+        <div class="header-divider"></div>
+
+        <!-- Status indicator -->
+        <div class="status-indicator">
+          <span id="status-dot" class="status-dot status-loading"></span>
+          <span id="status-text" class="status-text">Loading WASM...</span>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <!-- Preset Selector -->
+        <div class="control-field">
+          <span class="field-label">Preset:</span>
+          <select id="preset-select" class="dropdown-select">
+            <option value="fibonacci">Recursive Fibonacci</option>
+            <option value="bubblesort">Bubble Sort (Mutations)</option>
+            <option value="binarysearch">Binary Search</option>
+            <option value="nested">Nested Dictionaries & Lists</option>
+            <option value="exceptions">Exception Handling</option>
+            <option value="loopguard">Loop Guard Limit</option>
+          </select>
+        </div>
+
+        <!-- Max Steps Limit -->
+        <div class="control-field">
+          <span class="field-label">Limit:</span>
+          <select id="step-limit" class="dropdown-select" title="Infinite loop step guard">
+            <option value="1000">1,000 steps</option>
+            <option value="2500" selected>2,500 steps</option>
+            <option value="5000">5,000 steps</option>
+          </select>
+        </div>
+      </div>
+    </header>
+
+    <!-- Stepper Control Bar -->
+    <section class="control-bar">
+      <div class="controls-left">
+        <!-- Run / Retrace Button -->
+        <button id="btn-run" class="btn-run" title="Run / Trace Script (Ctrl+Enter)">
+          <svg id="icon-run-play" class="btn-svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+          <svg id="icon-run-spin" class="btn-svg spinner hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
+          </svg>
+          <span id="btn-run-text">Run & Trace</span>
+        </button>
+
+        <div class="control-separator"></div>
+
+        <!-- Stepping Group -->
+        <div class="stepper-group">
+          <!-- Jump to Start -->
+          <button id="btn-jump-start" class="btn-tool" title="Restart / First Step (Home)" disabled>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="19 20 9 12 19 4 19 20" fill="currentColor"></polygon>
+              <line x1="5" y1="19" x2="5" y2="5"></line>
+            </svg>
+          </button>
+
+          <!-- Step Backward -->
+          <button id="btn-step-back" class="btn-tool" title="Step Backward (F9 / Alt+Left)" disabled>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="18 20 6 12 18 4 18 20" fill="currentColor"></polygon>
+              <line x1="18" y1="20" x2="18" y2="4"></line>
+            </svg>
+          </button>
+
+          <!-- Play / Pause -->
+          <button id="btn-play" class="btn-tool" title="Auto-play Stepper (Space)" disabled>
+            <svg id="icon-play-toggle" width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+          </button>
+
+          <!-- Step Forward / Into -->
+          <button id="btn-step-in" class="btn-tool" title="Step Into / Forward (F11 / Alt+Right)" disabled>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="6 4 18 12 6 20 6 4" fill="currentColor"></polygon>
+              <line x1="6" y1="4" x2="6" y2="20"></line>
+            </svg>
+          </button>
+
+          <!-- Step Over -->
+          <button id="btn-step-over" class="btn-tool" title="Step Over (F10)" disabled>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="10 15 15 20 20 15"></polyline>
+              <path d="M4 4h7a4 4 0 0 1 4 4v12"></path>
+            </svg>
+          </button>
+
+          <!-- Step Out -->
+          <button id="btn-step-out" class="btn-tool" title="Step Out (Shift+F11)" disabled>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="10 9 15 4 20 9"></polyline>
+              <path d="M4 20h7a4 4 0 0 0 4-4V4"></path>
+            </svg>
+          </button>
+
+          <!-- Continue / Next Breakpoint -->
+          <button id="btn-continue" class="btn-tool" title="Continue to Next Breakpoint (F5)" disabled>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 16 16 12 12 8"></polyline>
+              <line x1="8" y1="12" x2="16" y2="12"></line>
+            </svg>
+          </button>
+
+          <!-- Jump to End -->
+          <button id="btn-jump-end" class="btn-tool" title="Jump to End (End)" disabled>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="5 4 15 12 5 20 5 4" fill="currentColor"></polygon>
+              <line x1="19" y1="5" x2="19" y2="19"></line>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Speed selector -->
+        <select id="playback-speed" class="dropdown-select speed-select" title="Playback Speed">
+          <option value="1200">0.5x</option>
+          <option value="600" selected>1.0x</option>
+          <option value="300">2.0x</option>
+          <option value="120">4.0x</option>
+        </select>
+
+        <!-- Reset Button -->
+        <button id="btn-reset" class="btn-icon-subtle" title="Reset Session" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+            <path d="M3 3v5h5"></path>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Scrubber Slider -->
+      <div class="controls-right">
+        <div class="scrubber-counter">
+          <span class="scrubber-label">Step:</span>
+          <span id="scrubber-current" class="scrubber-active-num">0</span>
+          <span class="scrubber-slash">/</span>
+          <span id="scrubber-total" class="scrubber-total-num">0</span>
+        </div>
+        <input type="range" id="step-scrubber" min="0" max="0" value="0" disabled />
+      </div>
+    </section>
+
+    <!-- Main Workspace -->
+    <main class="main-workspace">
+      <!-- Left Column: Code Editor -->
+      <div class="editor-pane">
+        <div class="pane-header">
+          <div class="header-title-box">
+            <span class="pane-title">Python Source</span>
+            <span class="gutter-hint">(Click gutter to toggle breakpoints)</span>
+          </div>
+          <div class="header-actions">
+            <!-- VIM MODE Toggle Button -->
+            <button id="btn-vim-mode" class="btn-vim" title="Toggle Vim Navigation Mode (Esc, hjkl, w, b, dd, yy, p)">
+              <span class="vim-tag">VIM</span>
+              <span id="vim-status-badge" class="vim-badge off">OFF</span>
+            </button>
+            <button id="btn-clear-bps" class="btn-link" title="Clear all breakpoints">Clear Breakpoints</button>
+          </div>
+        </div>
+
+        <div class="editor-body" id="monaco-editor-container">
+          <!-- Monaco Mount -->
+        </div>
+        <div id="vim-status-bar" class="vim-status-bar hidden"></div>
+      </div>
+
+      <!-- Right Column: Inspector Panels -->
+      <div class="inspector-pane">
+        <!-- Top Half: Call Stack (left) + Variables (right) -->
+        <div class="inspector-top-row">
+          <!-- Call Stack Sub-Pane -->
+          <div class="sub-pane callstack-subpane">
+            <div class="pane-header">
+              <div class="header-title-box">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                  <polyline points="2 17 12 22 22 17"></polyline>
+                  <polyline points="2 12 12 17 22 12"></polyline>
+                </svg>
+                <span class="pane-title">Call Stack</span>
+              </div>
+              <span id="stack-count" class="pane-counter">0 frames</span>
+            </div>
+            <div class="subpane-body scroll-custom">
+              <ul id="call-stack-list" class="stack-items">
+                <li class="empty-notice">Stack is empty</li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- Scope / Variables Sub-Pane -->
+          <div class="sub-pane variables-subpane">
+            <div class="pane-header">
+              <div class="header-title-box">
+                <span class="pane-title">Variables</span>
+                <span id="selected-frame-label" class="frame-scope-pill">global</span>
+              </div>
+              <div class="scope-toggle-group">
+                <button id="tab-locals" class="scope-toggle-btn active">Locals</button>
+                <button id="tab-globals" class="scope-toggle-btn">Globals</button>
+              </div>
+            </div>
+            <div class="subpane-body scroll-custom">
+              <!-- Event Banner: Return -->
+              <div id="return-alert" class="event-strip strip-return hidden">
+                <span class="strip-tag">RETURN</span>
+                <span id="return-val-text" class="strip-text"></span>
+              </div>
+              <!-- Event Banner: Exception -->
+              <div id="exception-alert" class="event-strip strip-exception hidden">
+                <span class="strip-tag">EXCEPTION</span>
+                <span id="exception-val-text" class="strip-text"></span>
+              </div>
+
+              <div class="variables-header-row">
+                <div style="width: 32%;">Name</div>
+                <div style="width: 22%;">Type</div>
+                <div style="width: 46%;">Value</div>
+              </div>
+              <div id="variables-tree-container" class="variables-tree">
+                <div class="empty-notice">No variables in scope</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom Half: Stdout Terminal Output -->
+        <div class="terminal-pane">
+          <div class="pane-header">
+            <div class="header-title-box">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="4 17 10 11 4 5"></polyline>
+                <line x1="12" y1="19" x2="20" y2="19"></line>
+              </svg>
+              <span class="pane-title">Terminal Output</span>
+              <span id="terminal-step-msg" class="terminal-step-sub">— Pyodide / RustPython WASM</span>
+            </div>
+            <button id="btn-clear-console" class="btn-icon-subtle" title="Clear Terminal">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </button>
+          </div>
+          <div class="terminal-body scroll-custom">
+            <pre id="stdout-content" class="terminal-text"><span class="term-greeting">RustPython 3.12 WebAssembly Environment</span></pre>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Bottom VS Code Style Status Bar -->
+    <footer class="bottom-status-bar">
+      <div class="status-left">
+        <div id="status-event-box" class="status-event-badge hidden">LINE</div>
+        <span id="status-line-func" class="status-main-label">Ready</span>
+        <span id="status-step-summary" class="status-dim-label"></span>
+      </div>
+      <div class="status-right">
+        <div class="status-stat-item">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect width="8" height="14" x="8" y="6" rx="4"></rect>
+            <path d="m19 7-3 2"></path>
+            <path d="m5 7 3 2"></path>
+            <path d="m19 19-3-2"></path>
+            <path d="m5 19 3-2"></path>
+            <path d="M20 13h-4"></path>
+            <path d="M4 13h4"></path>
+          </svg>
+          <span id="status-bp-count">0 breakpoints</span>
+        </div>
+        <div id="status-duration-box" class="status-stat-item hidden">
+          <span>⚡ <span id="status-duration-val">0</span>ms</span>
+        </div>
+        <div class="status-stat-item">
+          <span>RustPython WASM</span>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Monaco loader script -->
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
