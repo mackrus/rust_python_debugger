@@ -120,7 +120,6 @@ class DebuggerApp {
 
     this.isVimEnabled = false;
     this.vimMode = null;
-    this.cachedClipboardText = "";
     this.vimRegisterController = null;
     this.vimClipboardReg = null;
 
@@ -159,18 +158,8 @@ class DebuggerApp {
 
     this.btnVimMode = document.getElementById("btn-vim-mode");
     this.vimStatusBadge = document.getElementById("vim-status-badge");
-    this.btnCopyCode = document.getElementById("btn-copy-code");
-    this.btnCopyText = document.getElementById("btn-copy-text");
-    this.btnPasteCode = document.getElementById("btn-paste-code");
-    this.btnPasteText = document.getElementById("btn-paste-text");
     this.btnClearBps = document.getElementById("btn-clear-bps");
     this.vimStatusBar = document.getElementById("vim-status-bar");
-
-    this.pasteModal = document.getElementById("paste-modal");
-    this.pasteModalTextarea = document.getElementById("paste-modal-textarea");
-    this.btnClosePasteModal = document.getElementById("btn-close-paste-modal");
-    this.btnCancelPasteModal = document.getElementById("btn-cancel-paste-modal");
-    this.btnConfirmPasteModal = document.getElementById("btn-confirm-paste-modal");
 
     this.callStackList = document.getElementById("call-stack-list");
     this.stackCount = document.getElementById("stack-count");
@@ -248,15 +237,6 @@ class DebuggerApp {
           this.toggleBreakpoint(line);
         }
       });
-
-      // Shortcut for Ctrl+Shift+V (familiar terminal paste)
-      this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyV, () => {
-        this.pasteFromClipboard();
-      });
-
-      // Synchronize clipboard text when editor gains text focus or pointer down
-      this.editor.onDidFocusEditorText(() => this.syncClipboard());
-      container.addEventListener("pointerdown", () => this.syncClipboard());
 
       // Preload Monaco Vim so registers and clipboard bridges are configured early
       this.initMonacoVim();
@@ -351,18 +331,16 @@ class DebuggerApp {
 
     // 2. Define "+" and "*" registers if not already defined
     if (!rc.isValidRegister("+")) {
-      const self = this;
       const clipboardReg = {
-        keyBuffer: [this.cachedClipboardText || ""],
+        keyBuffer: [""],
         insertModeChanges: [],
         searchQueries: [],
-        linewise: (this.cachedClipboardText || "").endsWith("\n"),
+        linewise: false,
         blockwise: false,
         setText: function(text, linewise, blockwise) {
           this.keyBuffer = [text || ""];
           this.linewise = !!linewise;
           this.blockwise = !!blockwise;
-          self.cachedClipboardText = text || "";
           if (text && navigator.clipboard?.writeText) {
             navigator.clipboard.writeText(text).catch(() => {});
           }
@@ -374,7 +352,6 @@ class DebuggerApp {
           }
           this.keyBuffer.push(text);
           const full = this.keyBuffer.join("");
-          self.cachedClipboardText = full;
           if (full && navigator.clipboard?.writeText) {
             navigator.clipboard.writeText(full).catch(() => {});
           }
@@ -404,7 +381,6 @@ class DebuggerApp {
       rc.pushText = function(registerName, operator, text, linewise, isBlock) {
         origPushText.call(this, registerName, operator, text, linewise, isBlock);
         if (text && (!registerName || registerName === "+" || registerName === "*")) {
-          self.cachedClipboardText = text;
           if (navigator.clipboard?.writeText) {
             navigator.clipboard.writeText(text).catch(() => {});
           }
@@ -416,7 +392,7 @@ class DebuggerApp {
       };
     }
 
-    // 4. Wrap Vim paste action so p, P, "+p, "*p read the latest system clipboard
+    // 4. Wrap Vim paste action so p, P, "+p, "*p read the latest system clipboard on keypress
     if (!Vim._pasteActionHooked && Vim._actions?.paste) {
       Vim._pasteActionHooked = true;
       const origPaste = Vim._actions.paste;
@@ -436,27 +412,10 @@ class DebuggerApp {
         return origPaste(cm, actionArgs, vimState);
       });
     }
-
-    this.syncClipboard();
-  }
-
-  async syncClipboard() {
-    if (!navigator.clipboard?.readText) return null;
-    try {
-      const text = await navigator.clipboard.readText();
-      if (typeof text === "string" && text.length > 0) {
-        this.updateVimClipboard(text);
-        return text;
-      }
-    } catch {
-      // Focus or permission restricted
-    }
-    return null;
   }
 
   updateVimClipboard(text) {
     if (typeof text !== "string") return;
-    this.cachedClipboardText = text;
     const isLinewise = text.endsWith("\n");
     if (this.vimClipboardReg) {
       this.vimClipboardReg.keyBuffer = [text];
@@ -466,118 +425,6 @@ class DebuggerApp {
       this.vimRegisterController.unnamedRegister.keyBuffer = [text];
       this.vimRegisterController.unnamedRegister.linewise = isLinewise;
     }
-  }
-
-  async pasteFromClipboard() {
-    if (!this.editor) return;
-    let pasted = false;
-    try {
-      if (navigator.clipboard?.readText) {
-        const text = await navigator.clipboard.readText();
-        if (typeof text === "string" && text.length > 0) {
-          this.insertTextAtCursor(text);
-          this.updateVimClipboard(text);
-          this.showActionFeedback(this.btnPasteText, "Pasted!", "Paste");
-          pasted = true;
-        }
-      }
-    } catch (err) {
-      console.warn("Direct clipboard read unavailable:", err);
-    }
-    if (!pasted) {
-      this.openPasteModal();
-    }
-  }
-
-  async copyToClipboard() {
-    if (!this.editor) return;
-    const selection = this.editor.getSelection();
-    let text = "";
-    if (selection && !selection.isEmpty()) {
-      text = this.editor.getModel().getValueInRange(selection);
-    } else {
-      text = this.editor.getValue();
-    }
-    if (!text) return;
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        this.updateVimClipboard(text);
-        this.showActionFeedback(this.btnCopyText, "Copied!", "Copy");
-        return;
-      }
-    } catch {}
-
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.style.position = "fixed";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.select();
-    try {
-      document.execCommand("copy");
-      this.updateVimClipboard(text);
-      this.showActionFeedback(this.btnCopyText, "Copied!", "Copy");
-    } finally {
-      document.body.removeChild(ta);
-    }
-  }
-
-  insertTextAtCursor(text) {
-    if (!this.editor) return;
-    const selection = this.editor.getSelection();
-    if (selection && !selection.isEmpty()) {
-      this.editor.executeEdits("paste-handler", [{
-        range: selection,
-        text: text,
-        forceMoveMarkers: true
-      }]);
-    } else {
-      const pos = this.editor.getPosition() || { lineNumber: 1, column: 1 };
-      const range = new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column);
-      this.editor.executeEdits("paste-handler", [{
-        range: range,
-        text: text,
-        forceMoveMarkers: true
-      }]);
-    }
-    this.editor.focus();
-  }
-
-  openPasteModal() {
-    if (!this.pasteModal) return;
-    this.pasteModal.classList.remove("hidden");
-    if (this.pasteModalTextarea) {
-      this.pasteModalTextarea.value = "";
-      setTimeout(() => this.pasteModalTextarea.focus(), 50);
-    }
-  }
-
-  closePasteModal() {
-    if (!this.pasteModal) return;
-    this.pasteModal.classList.add("hidden");
-    if (this.editor) this.editor.focus();
-  }
-
-  confirmPasteModal() {
-    const text = this.pasteModalTextarea?.value;
-    if (text) {
-      this.insertTextAtCursor(text);
-      this.updateVimClipboard(text);
-      this.showActionFeedback(this.btnPasteText, "Pasted!", "Paste");
-    }
-    this.closePasteModal();
-  }
-
-  showActionFeedback(el, feedbackText, defaultText) {
-    if (!el) return;
-    el.textContent = feedbackText;
-    const btn = el.closest(".btn-header-action");
-    if (btn) btn.classList.add("action-success");
-    setTimeout(() => {
-      el.textContent = defaultText;
-      if (btn) btn.classList.remove("action-success");
-    }, 1500);
   }
 
   async toggleVimMode() {
@@ -622,43 +469,17 @@ class DebuggerApp {
   bindEvents() {
     this.btnRun.addEventListener("click", () => this.runTrace());
     this.btnVimMode.addEventListener("click", () => this.toggleVimMode());
-    this.btnCopyCode?.addEventListener("click", () => this.copyToClipboard());
-    this.btnPasteCode?.addEventListener("click", () => this.pasteFromClipboard());
     this.btnClearBps.addEventListener("click", () => this.clearBreakpoints());
     this.btnClearConsole.addEventListener("click", () => {
       this.stdoutContent.innerHTML = `<span class="term-greeting">Console cleared.</span>`;
     });
 
-    // Paste Modal events
-    this.btnClosePasteModal?.addEventListener("click", () => this.closePasteModal());
-    this.btnCancelPasteModal?.addEventListener("click", () => this.closePasteModal());
-    this.btnConfirmPasteModal?.addEventListener("click", () => this.confirmPasteModal());
-    this.pasteModal?.addEventListener("click", (e) => {
-      if (e.target === this.pasteModal) this.closePasteModal();
-    });
-    this.pasteModalTextarea?.addEventListener("keydown", (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-        e.preventDefault();
-        this.confirmPasteModal();
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        this.closePasteModal();
-      }
-    });
-
-    // Global clipboard listeners for continuous sync
-    window.addEventListener("focus", () => this.syncClipboard());
-    document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) this.syncClipboard();
-    });
+    // When a native browser paste happens (e.g. Ctrl+V), keep Vim registers updated
     window.addEventListener("paste", (e) => {
       const text = e.clipboardData?.getData("text/plain");
       if (text) {
         this.updateVimClipboard(text);
       }
-    });
-    window.addEventListener("copy", () => {
-      setTimeout(() => this.syncClipboard(), 60);
     });
 
     this.presetSelect.addEventListener("change", (e) => {
