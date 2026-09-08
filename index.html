@@ -44,6 +44,7 @@
         <div class="control-field">
           <span class="field-label">Preset:</span>
           <select id="preset-select" class="dropdown-select">
+            <option value="none" selected>None (Empty)</option>
             <option value="fibonacci">Recursive Fibonacci</option>
             <option value="bubblesort">Bubble Sort (Mutations)</option>
             <option value="binarysearch">Binary Search</option>
@@ -188,9 +189,9 @@
           </div>
           <div class="header-actions">
             <!-- VIM MODE Toggle Button -->
-            <button id="btn-vim-mode" class="btn-vim" title="Toggle Vim Navigation Mode (Esc, hjkl, w, b, dd, yy, p)">
+            <button id="btn-vim-mode" class="btn-vim active" title="Toggle Vim Navigation Mode (Esc, hjkl, w, b, dd, yy, p)">
               <span class="vim-tag">VIM</span>
-              <span id="vim-status-badge" class="vim-badge off">OFF</span>
+              <span id="vim-status-badge" class="vim-badge on">ON</span>
             </button>
             <button id="btn-clear-bps" class="btn-link" title="Clear all breakpoints">Clear Breakpoints</button>
           </div>
