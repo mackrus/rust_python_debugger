@@ -2,6 +2,8 @@
 
 A zero-server, client-side Python visual debugger powered by **RustPython** compiled to **WebAssembly (WASM)**.
 
+**Live Demo**: [https://mackrus.github.io/rust_python_debugger/](https://mackrus.github.io/rust_python_debugger/)
+
 Zero Node.js build tooling, zero Vite, zero server execution. Built with pure Cargo + `wasm-pack`, native browser ES modules, and a single shell script.
 
 ---
